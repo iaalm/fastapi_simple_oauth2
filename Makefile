@@ -3,7 +3,7 @@
 all: format lint test py
 
 test:
-	uv run -m unittest discover
+	uv run -m unittest discover -b
 
 format:
 	uvx isort .

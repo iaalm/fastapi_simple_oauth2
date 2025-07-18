@@ -4,6 +4,7 @@ Example usage of the FastAPI Simple OAuth2 PKCE plugin
 """
 
 from typing import Any, Optional
+
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -35,7 +36,7 @@ def validate_user(username: str, password: str) -> Optional[ClaimsSet]:
     """Validate user credentials and return claims"""
     user = USERS.get(username)
     if user and user["password"] == password:
-        return user["claims"]   # type: ignore[return-value]
+        return user["claims"]  # type: ignore[return-value]
     return None
 
 
@@ -50,7 +51,9 @@ oauth = register_oauth_route(
 # Protected endpoint requiring admin role
 @app.get("/admin")
 async def admin_only(
-    user_cliaims: ClaimsSet = Depends(oauth.require_claims_dependency({"role": "admin"})),
+    user_cliaims: ClaimsSet = Depends(
+        oauth.require_claims_dependency({"role": "admin"})
+    ),
 ) -> Any:
     return {"message": "Admin access granted!", "data": "sensitive admin data"}
 
