@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import logging
 import secrets
 import time
 from functools import wraps
@@ -12,11 +13,17 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+logger = logging.getLogger(__name__)
+
 
 class OAuth2PKCE:
     """OAuth2 PKCE flow implementation for FastAPI - Stateless version"""
 
-    def __init__(self, secret_key: str = None):
+    def __init__(
+        self,
+        secret_key: str = None,
+        enforce_redirect_uri_callback: Optional[Callable[[str], str]] = None,
+    ):
         """
         Initialize OAuth2 PKCE middleware
 
@@ -25,6 +32,7 @@ class OAuth2PKCE:
         """
         self.secret_key = secret_key or secrets.token_urlsafe(32)
         self.algorithm = "HS256"
+        self.enforce_redirect_uri_callback = enforce_redirect_uri_callback
 
     def _generate_code_challenge(self, code_verifier: str) -> str:
         """Generate code challenge from code verifier using SHA256"""
@@ -56,19 +64,13 @@ class OAuth2PKCE:
 
     def _verify_authorization_code(self, code: str) -> Dict[str, Any]:
         """Verify and decode an authorization code JWT"""
-        try:
-            payload = jwt.decode(code, self.secret_key, algorithms=[self.algorithm])
-            if payload.get("type") != "authorization_code":
-                raise HTTPException(
-                    status_code=400, detail="Invalid authorization code type"
-                )
-            return payload
-        except jwt.ExpiredSignatureError:
+        payload = self._verify_jwt_token(code)
+        if payload.get("type") != "authorization_code":
             raise HTTPException(
-                status_code=400, detail="Authorization code has expired"
+                status_code=400, detail="Invalid authorization code type"
             )
-        except jwt.InvalidTokenError:
-            raise HTTPException(status_code=400, detail="Invalid authorization code")
+            
+        return payload
 
     def _create_jwt_token(self, claims: Dict[str, Any], expires_in: int = 3600) -> str:
         """Create a JWT token with the given claims"""
@@ -84,6 +86,11 @@ class OAuth2PKCE:
         """Verify and decode a JWT token"""
         try:
             payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            # TODO: check if we need following code
+            # if payload.get("exp", 0) < time.time():
+            #     raise HTTPException(
+            #         status_code=400, detail="Token has expired"
+            #     )
             return payload
         except jwt.ExpiredSignatureError:
             raise HTTPException(status_code=401, detail="Token has expired")
@@ -145,6 +152,7 @@ class OAuth2PKCE:
             code_challenge: str = Form(...),
             code_challenge_method: str = Form(...),
             state: Optional[str] = Form(None),
+            client_id: Optional[str] = Form(None),
         ):
             """Login endpoint that validates credentials and returns authorization code"""
             # Validate credentials using the callback
@@ -171,6 +179,13 @@ class OAuth2PKCE:
             redirect_params = {"code": auth_code}
             if state:
                 redirect_params["state"] = state
+
+            if self.enforce_redirect_uri_callback:
+                expected_redirect_uri = self.enforce_redirect_uri_callback(
+                    client_id, redirect_uri
+                )
+                if expected_redirect_uri != redirect_uri:
+                    raise HTTPException(status_code=400, detail="Invalid redirect URI")
 
             redirect_url = f"{redirect_uri}?{urlencode(redirect_params)}"
             return RedirectResponse(url=redirect_url)
@@ -227,6 +242,7 @@ def register_oauth_route(
     app: FastAPI,
     validate_callback: Callable[[str, str], Optional[Dict[str, Any]]],
     key: Optional[str] = None,
+    enforce_redirect_uri_callback: Optional[Callable[[str], str]] = None,
 ):
     """
     Register OAuth routes with the FastAPI application
@@ -237,8 +253,11 @@ def register_oauth_route(
         key: Secret key for JWT signing (optional)
     """
     if key is None:
+        logger.warning("No secret key provided, generating a random one")
         key = secrets.token_urlsafe(32)
-    oauth = OAuth2PKCE(secret_key=key)
+    oauth = OAuth2PKCE(
+        secret_key=key, enforce_redirect_uri_callback=enforce_redirect_uri_callback
+    )
     oauth.register_oauth_routes(app, validate_callback)
     return oauth
 
