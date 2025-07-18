@@ -10,7 +10,7 @@ format:
 	uvx black .
 
 lint:
-	uv run mypy --strict fastapi_simple_oauth2
+	uv run mypy --strict .
 
 py:
 	uv build

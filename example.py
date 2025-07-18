@@ -3,11 +3,13 @@
 Example usage of the FastAPI Simple OAuth2 PKCE plugin
 """
 
+from typing import Any, Optional
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
-from fastapi_simple_oauth2 import register_oauth_route, require_claim
+from fastapi_simple_oauth2 import register_oauth_route
+from fastapi_simple_oauth2.typing import ClaimsSet
 
 # Create FastAPI app
 app = FastAPI(title="OAuth2 PKCE Example")
@@ -29,11 +31,11 @@ USERS = {
 }
 
 
-def validate_user(username: str, password: str):
+def validate_user(username: str, password: str) -> Optional[ClaimsSet]:
     """Validate user credentials and return claims"""
     user = USERS.get(username)
     if user and user["password"] == password:
-        return user["claims"]
+        return user["claims"]   # type: ignore[return-value]
     return None
 
 
@@ -48,24 +50,24 @@ oauth = register_oauth_route(
 # Protected endpoint requiring admin role
 @app.get("/admin")
 async def admin_only(
-    user_cliaims: dict = Depends(oauth.require_claims_dependency({"role": "admin"})),
-):
+    user_cliaims: ClaimsSet = Depends(oauth.require_claims_dependency({"role": "admin"})),
+) -> Any:
     return {"message": "Admin access granted!", "data": "sensitive admin data"}
 
 
 # Protected endpoint requiring read permission
 @app.get("/data")
 async def read_data(
-    user_cliaims: dict = Depends(
+    user_cliaims: ClaimsSet = Depends(
         oauth.require_claims_dependency({"permissions": ["read"]})
     ),
-):
+) -> Any:
     return {"message": "Data access granted!", "data": "some data"}
 
 
 # Simple login form
 @app.get("/login", response_class=HTMLResponse)
-async def login_form():
+async def login_form() -> Any:
     return """
     <!DOCTYPE html>
     <html>
