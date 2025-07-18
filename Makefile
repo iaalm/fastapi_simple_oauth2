@@ -14,3 +14,6 @@ lint:
 
 py:
 	uv build
+
+host:
+	uv run fastapi dev example.py
