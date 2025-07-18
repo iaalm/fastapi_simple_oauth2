@@ -7,6 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Dict, Optional, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -204,16 +205,11 @@ class OAuth2PKCE:
         Returns:
             FastAPI dependency function that validates JWT claims
         """
-
+        auth_scheme = HTTPBearer()
         def dependency(
-            authorization: str = Header(..., description="Bearer token")
+            authorization: HTTPAuthorizationCredentials = Depends(auth_scheme)
         ) -> ClaimsSet:
-            if not authorization or not authorization.startswith("Bearer "):
-                raise HTTPException(
-                    status_code=401, detail="Missing or invalid Authorization header"
-                )
-
-            token = authorization.split(" ")[1]
+            token = authorization.credentials
             payload = self._verify_jwt_token(token)
             if payload.get("type") != "access_token":
                 raise HTTPException(status_code=401, detail="Invalid token type")

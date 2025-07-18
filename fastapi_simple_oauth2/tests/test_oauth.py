@@ -119,7 +119,7 @@ class TestOAuth2PKCE(unittest.TestCase):
 
     def test_no_auth(self) -> None:
         response = self.client.get("/protected")
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 403)
 
     def test_invalid_auth(self) -> None:
         response = self.client.get(
