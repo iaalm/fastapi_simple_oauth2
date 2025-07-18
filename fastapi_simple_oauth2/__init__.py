@@ -7,5 +7,5 @@ from fastapi_simple_oauth2.pkce import (
 __all__ = [
     "OAuth2PKCE",
     "register_oauth_route",
-    "require_claims_dependency  ",
+    "require_claims_dependency",
 ]
