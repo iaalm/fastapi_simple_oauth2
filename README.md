@@ -8,7 +8,7 @@ A lightweight, stateless OAuth2 middleware for FastAPI applications with PKCE (P
 - **JWT Tokens**: Stateless authentication using JWT tokens
 - **Custom Claims**: Support for custom claims in JWT tokens
 - **Simple Integration**: Easy to integrate with existing FastAPI applications
-- **Single Tenant**: Designed for single-tenant applications
+- **Single Tenant**: Target to inline intergrated with your application easily, no multi-tenantcy support
 - **No Database Required**: In-memory storage for development (can be extended for production)
 
 ## Installation
@@ -56,12 +56,12 @@ Registers OAuth2 routes with your FastAPI application.
 **Returns:**
 - `OAuth2PKCE`: OAuth2 instance for further configuration
 
-### `require_claim(required_claims)`
+### `require_claims_dependency(required_claims)`
 
 Decorator to protect endpoints with specific claim requirements.
 
 **Parameters:**
-- `required_claims` (dict): Dictionary of required claims and their expected values
+- `require_claims_dependency` (dict): Dictionary of required claims and their expected values
 
 ## OAuth2 Flow
 
@@ -70,12 +70,11 @@ Decorator to protect endpoints with specific claim requirements.
 The client initiates the OAuth2 flow by redirecting the user to the `/authorize` endpoint:
 
 ```
-GET /authorize?response_type=code&client_id=your_client&redirect_uri=http://localhost:3000/callback&code_challenge=YOUR_CODE_CHALLENGE&code_challenge_method=S256&state=random_state
+GET /authorize?response_type=code&redirect_uri=http://localhost:3000/callback&code_challenge=YOUR_CODE_CHALLENGE&code_challenge_method=S256&state=random_state
 ```
 
 **Required Parameters:**
 - `response_type`: Must be "code"
-- `client_id`: Your client identifier
 - `redirect_uri`: Where to redirect after authorization
 - `code_challenge`: PKCE code challenge
 - `code_challenge_method`: Must be "S256"
@@ -92,7 +91,7 @@ The client exchanges the authorization code for an access token:
 POST /token
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=authorization_code&code=AUTHORIZATION_CODE&code_verifier=CODE_VERIFIER&client_id=your_client&redirect_uri=http://localhost:3000/callback
+grant_type=authorization_code&code=AUTHORIZATION_CODE&code_verifier=CODE_VERIFIER&redirect_uri=http://localhost:3000/callback
 ```
 
 **Response:**
@@ -139,14 +138,20 @@ oauth = register_oauth_route(app, validate_callback=validate_user)
 
 # Protected endpoints
 @app.get("/admin")
-@require_claim({"role": "admin"})
-async def admin_only():
-    return {"message": "Admin access granted!"}
+@require_claim({"role": "admin"})async def admin_only(
+    user_cliaims: ClaimsSet = Depends(
+        oauth.require_claims_dependency({"role": "admin"})
+    ),
+) -> Any:
+    return {"message": "Admin access granted!", "data": "sensitive admin data"}
 
-@app.get("/user")
-@require_claim({"role": "user"})
-async def user_only():
-    return {"message": "User access granted!"}
+@app.get("/data")
+async def read_data(
+    user_cliaims: ClaimsSet = Depends(
+        oauth.require_claims_dependency({"permissions": ["read"]})
+    ),
+) -> Any:
+    return {"message": "Data access granted!", "data": "some data"}
 ```
 
 ### Frontend Integration
@@ -176,7 +181,6 @@ async function startOAuthFlow() {
     
     const params = new URLSearchParams({
         response_type: 'code',
-        client_id: 'your_client_id',
         redirect_uri: 'http://localhost:3000/callback',
         code_challenge: codeChallenge,
         code_challenge_method: 'S256',
@@ -199,7 +203,6 @@ async function exchangeCodeForToken(code) {
             grant_type: 'authorization_code',
             code: code,
             code_verifier: codeVerifier,
-            client_id: 'your_client_id',
             redirect_uri: 'http://localhost:3000/callback'
         })
     });
@@ -208,24 +211,6 @@ async function exchangeCodeForToken(code) {
     localStorage.setItem('access_token', tokenData.access_token);
 }
 ```
-
-## Security Considerations
-
-1. **Secret Key**: Always use a strong, unique secret key in production
-2. **HTTPS**: Use HTTPS in production to protect tokens in transit
-3. **Token Expiration**: Tokens expire after 1 hour by default
-4. **Code Cleanup**: Authorization codes are automatically cleaned up after use
-5. **State Parameter**: Use the state parameter to prevent CSRF attacks
-
-## Production Considerations
-
-For production use, consider:
-
-1. **Persistent Storage**: Replace in-memory storage with Redis or a database
-2. **Token Refresh**: Implement token refresh functionality
-3. **Rate Limiting**: Add rate limiting to prevent abuse
-4. **Logging**: Add comprehensive logging for security monitoring
-5. **CORS**: Configure CORS properly for your frontend domains
 
 ## License
 
