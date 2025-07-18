@@ -7,17 +7,19 @@ import base64
 import hashlib
 import secrets
 import unittest
+from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from fastapi_simple_oauth2 import OAuth2PKCE, register_oauth_route
+from fastapi_simple_oauth2.typing import ClaimsSet
 
 
 class TestOAuth2PKCE(unittest.TestCase):
     """Test cases for OAuth2 PKCE implementation"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         app = FastAPI()
 
         self.test_user = ("test", "password", {"role": "user"})
@@ -25,7 +27,7 @@ class TestOAuth2PKCE(unittest.TestCase):
         users = [self.test_user, self.admin_user]
 
         # Mock user validation
-        def validate_user(username: str, password: str):
+        def validate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
             for user in users:
                 if user[0] == username and user[1] == password:
                     return user[2]
@@ -37,16 +39,16 @@ class TestOAuth2PKCE(unittest.TestCase):
         admin_require = oauth.require_claims_dependency({"role": "admin"})
 
         @app.get("/protected")
-        async def protected(user_cliaims: dict = Depends(login_require)):
+        async def protected(user_cliaims: ClaimsSet = Depends(login_require)) -> Any:
             return {"message": "success"}
 
         @app.get("/admin")
-        async def protected(user_cliaims: dict = Depends(admin_require)):
+        async def admin(user_cliaims: ClaimsSet = Depends(admin_require)) -> Any:
             return {"message": "success"}
 
         self.client = TestClient(app)
 
-    def test_oauth_flow(self):
+    def test_oauth_flow(self) -> None:
         """Test complete OAuth2 flow"""
 
         # response = client.get("/protected")

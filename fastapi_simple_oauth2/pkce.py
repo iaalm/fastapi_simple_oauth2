@@ -4,7 +4,7 @@ import logging
 import secrets
 import time
 from functools import wraps
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import jwt
@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+
+from fastapi_simple_oauth2.typing import ClaimsSet, TokenResponse
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +23,8 @@ class OAuth2PKCE:
 
     def __init__(
         self,
-        secret_key: str = None,
-        enforce_redirect_uri_callback: Optional[Callable[[str], str]] = None,
+        secret_key: Optional[str] = None,
+        enforce_redirect_uri_callback: Optional[Callable[[Optional[str]], str]] = None,
     ):
         """
         Initialize OAuth2 PKCE middleware
@@ -46,7 +48,7 @@ class OAuth2PKCE:
         code_challenge_method: str,
         state: Optional[str] = None,
         expires_in: int = 300,
-        claims: Optional[Dict[str, Any]] = [],
+        claims: ClaimsSet = {},
     ) -> str:
         """Create a JWT-based authorization code"""
         payload = {
@@ -62,17 +64,17 @@ class OAuth2PKCE:
         }
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
-    def _verify_authorization_code(self, code: str) -> Dict[str, Any]:
+    def _verify_authorization_code(self, code: str) -> ClaimsSet:
         """Verify and decode an authorization code JWT"""
         payload = self._verify_jwt_token(code)
         if payload.get("type") != "authorization_code":
             raise HTTPException(
                 status_code=400, detail="Invalid authorization code type"
             )
-            
+
         return payload
 
-    def _create_jwt_token(self, claims: Dict[str, Any], expires_in: int = 3600) -> str:
+    def _create_jwt_token(self, claims: ClaimsSet, expires_in: int = 3600) -> str:
         """Create a JWT token with the given claims"""
         payload = {
             **claims,
@@ -82,7 +84,7 @@ class OAuth2PKCE:
         }
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
-    def _verify_jwt_token(self, token: str) -> Dict[str, Any]:
+    def _verify_jwt_token(self, token: str) -> ClaimsSet:
         """Verify and decode a JWT token"""
         try:
             payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
@@ -91,7 +93,7 @@ class OAuth2PKCE:
             #     raise HTTPException(
             #         status_code=400, detail="Token has expired"
             #     )
-            return payload
+            return cast(ClaimsSet, payload)
         except jwt.ExpiredSignatureError:
             raise HTTPException(status_code=401, detail="Token has expired")
         except jwt.InvalidTokenError:
@@ -100,8 +102,8 @@ class OAuth2PKCE:
     def register_oauth_routes(
         self,
         app: FastAPI,
-        validate_callback: Callable[[str, str], Optional[Dict[str, Any]]],
-    ):
+        validate_callback: Callable[[str, str], Optional[ClaimsSet]],
+    ) -> FastAPI:
         """
         Register OAuth routes with the FastAPI application
 
@@ -115,7 +117,7 @@ class OAuth2PKCE:
             grant_type: str = Form(..., description="Must be 'authorization_code'"),
             code: str = Form(..., description="Authorization code"),
             code_verifier: str = Form(..., description="PKCE code verifier"),
-        ):
+        ) -> TokenResponse:
             """OAuth2 token endpoint"""
 
             if grant_type != "authorization_code":
@@ -153,7 +155,7 @@ class OAuth2PKCE:
             code_challenge_method: str = Form(...),
             state: Optional[str] = Form(None),
             client_id: Optional[str] = Form(None),
-        ):
+        ) -> RedirectResponse:
             """Login endpoint that validates credentials and returns authorization code"""
             # Validate credentials using the callback
             claims = validate_callback(username, password)
@@ -181,16 +183,18 @@ class OAuth2PKCE:
                 redirect_params["state"] = state
 
             if self.enforce_redirect_uri_callback:
-                expected_redirect_uri = self.enforce_redirect_uri_callback(
-                    client_id, redirect_uri
-                )
+                expected_redirect_uri = self.enforce_redirect_uri_callback(client_id)
                 if expected_redirect_uri != redirect_uri:
                     raise HTTPException(status_code=400, detail="Invalid redirect URI")
 
             redirect_url = f"{redirect_uri}?{urlencode(redirect_params)}"
             return RedirectResponse(url=redirect_url)
 
-    def require_claims_dependency(self, required_claims: Dict[str, Any]):
+        return app
+
+    def require_claims_dependency(
+        self, required_claims: ClaimsSet
+    ) -> Callable[[str], ClaimsSet]:
         """
         FastAPI dependency to require specific claims in the JWT token
 
@@ -201,7 +205,9 @@ class OAuth2PKCE:
             FastAPI dependency function that validates JWT claims
         """
 
-        def dependency(authorization: str = Header(..., description="Bearer token")):
+        def dependency(
+            authorization: str = Header(..., description="Bearer token")
+        ) -> ClaimsSet:
             if not authorization or not authorization.startswith("Bearer "):
                 raise HTTPException(
                     status_code=401, detail="Missing or invalid Authorization header"
@@ -240,10 +246,10 @@ class OAuth2PKCE:
 # Convenience functions for easier usage
 def register_oauth_route(
     app: FastAPI,
-    validate_callback: Callable[[str, str], Optional[Dict[str, Any]]],
+    validate_callback: Callable[[str, str], Optional[ClaimsSet]],
     key: Optional[str] = None,
-    enforce_redirect_uri_callback: Optional[Callable[[str], str]] = None,
-):
+    enforce_redirect_uri_callback: Optional[Callable[[Optional[str]], str]] = None,
+) -> OAuth2PKCE:
     """
     Register OAuth routes with the FastAPI application
 
@@ -262,7 +268,9 @@ def register_oauth_route(
     return oauth
 
 
-def require_claims_dependency(required_claims: Dict[str, Any], key: str):
+def require_claims_dependency(
+    required_claims: ClaimsSet, key: str
+) -> Callable[[str], ClaimsSet]:
     """
     FastAPI dependency to require specific claims in the JWT token
 
@@ -275,14 +283,3 @@ def require_claims_dependency(required_claims: Dict[str, Any], key: str):
     """
     oauth = OAuth2PKCE(secret_key=key)
     return oauth.require_claims_dependency(required_claims)
-
-
-def require_claims(required_claims: Dict[str, Any], key: str):
-    """
-    Decorator to require specific claims in the JWT token
-
-    Args:
-        required_claims: Dictionary of required claims and their expected values
-    """
-    oauth = OAuth2PKCE(secret_key=key)
-    return oauth.require_claims(required_claims)

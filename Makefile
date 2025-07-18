@@ -1,3 +1,7 @@
+.PHONY: all test format lint py
+
+all: format lint test py
+
 test:
 	uv run -m unittest discover
 
